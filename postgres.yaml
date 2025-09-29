@@ -1,0 +1,103 @@
+
+# postgres-secret.yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: postgres-secret
+  namespace: ddadllm
+type: Opaque
+stringData: # Use stringData for convenience, kubectl will base64 encode it
+  POSTGRES_PASSWORD: "yourpassword" # REPLACE THIS WITH A STRONG, UNIQUE PASSWORD
+  POSTGRES_USER: "dbuser" # Optional: Store user if you prefer
+  POSTGRES_DB: "litellm" # Optional: Store db name if you prefer
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: postgres-pvc
+  namespace: ddadllm
+spec:
+  accessModes:
+    - ReadWriteOnce 
+  resources:
+    requests:
+      storage: 1Gi 
+ --
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgres
+  namespace: ddadllm
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: postgres
+  template:
+    metadata:
+      labels:
+        app: postgres
+    spec:
+      containers:
+      - name: postgres
+        image: postgres:14
+        ports:
+        - containerPort: 5432
+        env:
+        - name: POSTGRES_USER
+          valueFrom:
+            secretKeyRef:
+              name: postgres-secret
+              key: POSTGRES_USER
+        - name: POSTGRES_DB
+          valueFrom:
+            secretKeyRef:
+              name: postgres-secret
+              key: POSTGRES_DB
+        - name: POSTGRES_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: postgres-secret
+              key: POSTGRES_PASSWORD
+        - name: PGDATA # <--- NEW: Instruct Postgres to use a subdirectory
+          value: "/var/lib/postgresql/data/pgdata" # <--- Full path to subdirectory
+        resources:
+          limits:
+            cpu: "2"
+            memory: "4Gi"          
+        volumeMounts:
+        - name: postgres-storage
+          mountPath: /var/lib/postgresql/data # <--- Mount the PVC here
+        # Optional: Keep liveness/readiness probes for better health checks
+        livenessProbe:
+          exec:
+            command:
+              - pg_isready
+              - -U
+              - dbuser # Replace with your POSTGRES_USER
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          exec:
+            command:
+              - pg_isready
+              - -U
+              - dbuser # Replace with your POSTGRES_USER
+          initialDelaySeconds: 5
+          periodSeconds: 5
+      volumes:
+      - name: postgres-storage
+        persistentVolumeClaim:
+          claimName: postgres-pvc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+  namespace: ddadllm
+spec:
+  selector:
+    app: postgres
+  ports:
+  - port: 5432
+    targetPort: 5432

@@ -1,0 +1,255 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: litellm-config-file
+  namespace: ddadllm
+data:
+  config.yaml: |
+    model_list:
+      - model_name: gemma_ollama
+        litellm_params:
+          model: ollama/gemma3:1b
+          api_base: http://ollama-service.ddadllm.svc.cluster.local:11434
+      - model_name: llama3
+        litellm_params: 
+          model: ollama/llama3.2:3b
+          api_base: http://ollama-service.ddadllm.svc.cluster.local:11434
+      - model_name: deepseek
+        litellm_params: 
+          model: ollama/deepseek-r1:1.5b
+          api_base: http://ollama-service.ddadllm.svc.cluster.local:11434
+      - model_name: mistral_ollama
+        litellm_params: 
+          model: ollama/mistral:7b
+          api_base: http://ollama-service.ddadllm.svc.cluster.local:11434
+      - model_name: qwen3-235b-a22b
+        litellm_params: 
+          model: hosted_vllm/Qwen/Qwen3-235B-A22B-Instruct-2507
+          api_base: http://qwen3-235b-vllm.ddadllm.svc.cluster.local:8000/v1
+      - model_name: mistral-7b
+        litellm_params: 
+          model: hosted_vllm/mistralai/Mistral-7B-Instruct-v0.3
+          api_base: http://vllm-mistral-service.ddadllm.svc.cluster.local:8000/v1
+      - model_name: gemma-1b
+        litellm_params: 
+          model: hosted_vllm/google/gemma-3-1b-it
+          api_base: http://vllm-gemma-service.ddadllm.svc.cluster.local:8000/v1
+      - model_name: qwen25-72b-vl
+        litellm_params: 
+          model: hosted_vllm/Qwen/Qwen2.5-VL-72B-Instruct
+          api_base: http://qwen25-vision-vllm.ddadllm.svc.cluster.local:8000/v1
+      - model_name: qwen3-8b-embedding
+        litellm_params: 
+          model: hosted_vllm/Qwen/Qwen3-Embedding-8B
+          api_base: http://qwen3-8b-embedding.ddadllm.svc.cluster.local:8000/v1
+      - model_name: sfr-embedding
+        litellm_params: 
+          model: hosted_vllm/Salesforce/SFR-Embedding-Mistral
+          api_base: http://sfr-embedding.ddadllm.svc.cluster.local:8000/v1
+      - model_name: multilingual-e5-large
+        litellm_params: 
+          model: hosted_vllm/intfloat/multilingual-e5-large-instruct
+          api_base: http://multilingual-e5-large-embedding.ddadllm.svc.cluster.local:8000/v1
+      - model_name: qwen3-coder-480b
+        litellm_params: 
+          model: hosted_vllm/QuantTrio/Qwen3-Coder-480B-A35B-Instruct-AWQ
+          api_base: http://qwen3-480b-vllm.ddadllm.svc.cluster.local:8000/v1
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: litellm
+  namespace: ddadllm
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: litellm
+  template:
+    metadata:
+      labels:
+        app: litellm
+    spec:
+      containers:
+        - name: litellm
+          image: ghcr.io/berriai/litellm-non_root:main-v1.74.3-nightly #ghcr.io/berriai/litellm:main-stable
+          args:
+            - "--config"
+            - "/app/proxy_server_config.yaml"
+          ports:
+            - containerPort: 4000
+          volumeMounts:
+            - name: config-volume
+              mountPath: /app/proxy_server_config.yaml
+              subPath: config.yaml
+          env: 
+            - name: LITELLM_MASTER_KEY
+              value: "sk-1234" 
+            - name: DATABASE_URL
+              value: "postgresql://dbuser:yourpassword@postgres:5432/litellm"
+            - name: LITELLM_PROXY_SERVER
+              value: "true"
+            - name: HTTP_PROXY
+              value: "http://10.61.160.11:8080"
+            - name: HTTPS_PROXY
+              value: "http://10.61.160.11:8080"
+            - name: http_proxy
+              value: "http://10.61.160.11:8080"
+            - name: https_proxy
+              value: "http://10.61.160.11:8080"
+            - name: NO_PROXY
+              value: "localhost,127.0.0.1,0.0.0.0,*.svc,*.cluster.local"   
+            - name: no_proxy
+              value: "localhost,127.0.0.1,0.0.0.0,*.svc,*.cluster.local"     
+          resources:
+            limits:
+              cpu: "2"
+              memory: "4Gi"
+      volumes:
+        - name: config-volume
+          configMap:
+            name: litellm-config-file
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: litellm
+  namespace: ddadllm
+spec:
+  selector:
+    app: litellm
+  ports:
+    - protocol: TCP
+      port: 4000
+      targetPort: 4000
+  type: ClusterIP
+---
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: litellm-route # A descriptive name for your route
+  namespace: ddadllm      # Must be in the same namespace as the Service
+  labels:
+    app: litellm       # Optional: Add labels for organization
+spec:
+  to:
+    kind: Service
+    name: litellm      # Name of the Service to expose
+  port:
+    targetPort: 4000   
+
+
+
+==============================================
+
+apiVersion: v1
+kind: Secret
+metadata:
+  name: postgres-secret
+  namespace: ddadllm
+type: Opaque
+stringData: # Use stringData for convenience, kubectl will base64 encode it
+  POSTGRES_PASSWORD: "yourpassword" # REPLACE THIS WITH A STRONG, UNIQUE PASSWORD
+  POSTGRES_USER: "dbuser" # Optional: Store user if you prefer
+  POSTGRES_DB: "litellm" # Optional: Store db name if you prefer
+
+---
+# postgres-pvc.yaml
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: postgres-pvc
+  namespace: ddadllm
+spec:
+  accessModes:
+    - ReadWriteOnce 
+  resources:
+    requests:
+      storage: 1Gi 
+---
+# postgres-deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgres
+  namespace: ddadllm
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: postgres
+  template:
+    metadata:
+      labels:
+        app: postgres
+    spec:
+      securityContext: # <--- Added for security and permissions
+        fsGroup: 999   # Often 999 or 70 (UID of 'postgres' user in some images).
+                       # Check your image's Dockerfile for the exact UID of the 'postgres' user.
+                       # 999 is common in Red Hat/OpenShift based images.
+      containers:
+      - name: postgres
+        image: postgres:14
+        ports:
+        - containerPort: 5432
+        env:
+        - name: POSTGRES_USER
+          valueFrom: # <--- Get user from Secret
+            secretKeyRef:
+              name: postgres-secret
+              key: POSTGRES_USER
+        - name: POSTGRES_DB
+          valueFrom: # <--- Get DB name from Secret
+            secretKeyRef:
+              name: postgres-secret
+              key: POSTGRES_DB
+        - name: POSTGRES_PASSWORD
+          valueFrom: # <--- Get password from Secret
+            secretKeyRef:
+              name: postgres-secret
+              key: POSTGRES_PASSWORD
+        resources:
+          limits:
+            cpu: "2"
+            memory: "4Gi"
+        volumeMounts:
+        - name: postgres-storage
+          mountPath: /var/lib/postgresql/data
+        # Optional: Add liveness/readiness probes for better health checks
+        livenessProbe:
+          exec:
+            command:
+              - pg_isready
+              - -U
+              - dbuser # Replace with your POSTGRES_USER
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          exec:
+            command:
+              - pg_isready
+              - -U
+              - dbuser # Replace with your POSTGRES_USER
+          initialDelaySeconds: 5
+          periodSeconds: 5
+      volumes:
+      - name: postgres-storage
+        persistentVolumeClaim: # <--- Changed to use PVC
+          claimName: postgres-pvc
+
+
+=======================
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+  namespace: ddadllm
+spec:
+  selector:
+    app: postgres
+  ports:
+    - name: postgres
+      protocol: TCP
+      port: 5432
+      targetPort: 5432
+  type: ClusterIP
