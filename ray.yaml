@@ -1,0 +1,67 @@
+apiVersion: ray.io/v1
+kind: RayCluster
+metadata:
+  name: qwen3-rc-scale
+  labels:
+    cluster-type: production-llm-serving
+    gpu-type: h100
+spec:
+    headGroupSpec:
+      rayStartParams:
+        num-cpus: "0"
+        num-gpus: "0"
+      template:
+        spec:
+          # serviceAccountName: ray-service-account
+          containers:
+          - name: ray-head
+            image: rayproject/ray-llm:2.46.0-py311-cu124
+            ports:
+            - containerPort: 6379
+              name: gcs-server
+            - containerPort: 8265
+              name: dashboard
+            - containerPort: 10001
+              name: client
+            - containerPort: 8000
+              name: serve
+            - containerPort: 8080
+              name: metrics
+            volumeMounts:
+            - name: model-cache
+              mountPath: /model-cache
+          volumes:
+          - name: model-cache
+            emptyDir: {}
+    workerGroupSpecs:
+    - replicas: 1
+      minReplicas: 1
+      maxReplicas: 1
+      groupName: number-0
+      rayStartParams:
+        num-gpus: "1"
+      template:
+        spec:
+          containers:
+          - name: ray-worker
+            image: rayproject/ray-llm:2.46.0-py311-cu124
+            resources:
+              limits:
+                nvidia.com/gpu: "1"
+              requests:
+                nvidia.com/gpu: "1"
+            env:
+            - name: NCCL_P2P_DISABLE
+              value: "0"
+            - name: NCCL_IB_DISABLE
+              value: "1"            # set to "0" when RDMA available for best perf
+            - name: NCCL_SOCKET_IFNAME
+              value: "eth0"         # change to your interface
+            - name: NCCL_DEBUG
+              value: "INFO"
+            volumeMounts:
+            - name: model-cache
+              mountPath: /model-cache
+          volumes:
+          - name: model-cache
+            emptyDir: {}

@@ -1,0 +1,76 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vllm-qwen-32b
+  labels:
+    app: vllm-qwen-32b
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: vllm-qwen-32b
+  template:
+    metadata:
+      labels:
+        app: vllm-qwen-32b
+    spec:
+      restartPolicy: Always
+      containers:
+      - name: vllm-server
+        image: vllm/vllm-openai:latest    
+        command: ["python3", "-m", "vllm.entrypoints.openai.api_server"]
+        args:
+          - "--model"
+          - "/mnt/model-cache/qwen/qwen3-32b" 
+          - "--tensor-parallel-size"
+          - "2"
+          - "--max-num-seqs"
+          - "16" 
+          - "--host"
+          - "0.0.0.0"
+          - "--port"
+          - "8000"
+        env:
+          - name: HOME
+            value: "/mnt/model-cache"  
+        resources:
+          limits:
+            nvidia.com/gpu: "2"
+          requests:
+            nvidia.com/gpu: "2"
+        volumeMounts:
+        - name: model-cache
+          mountPath: /mnt/model-cache # Model data and VLLM cache volume mount
+        - name: dshm
+          mountPath: /dev/shm # Shared memory mount (Critical for Multi-GPU)
+      volumes:
+      - name: model-cache
+        persistentVolumeClaim:
+          claimName: model-cache-pvc
+      - name: dshm
+        emptyDir:
+          medium: Memory
+          sizeLimit: "10Gi" # Adjust based on your model size and GPU memory
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: vllm-qwen-32b-service
+  labels:
+    app: vllm-qwen-32b
+spec:
+  # Use ClusterIP for internal cluster traffic or NodePort/LoadBalancer if you need external access
+  type: ClusterIP 
+  selector:
+    # This must match the 'app' label in your Deployment's pod template
+    app: vllm-qwen-32b
+  ports:
+    # The name of the port for clarity
+    - name: http
+      # The port that the Service itself exposes (what clients connect to)
+      port: 8000
+      # The port on the Pod (container) that the service forwards traffic to
+      targetPort: 8000
+      # Use TCP protocol
+      protocol: TCP
+

@@ -1,0 +1,62 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: download-and-inspect-model
+  labels:
+    job-name: model-downloader-inspector
+spec:
+  # Do not retry on failure; we want to inspect the pod even if the job fails.
+  # We will rely on the main container's restartPolicy: Never, which is the default for Jobs.
+  backoffLimit: 0 
+  template:
+    spec:
+      serviceAccountName: default
+      restartPolicy: Never
+      
+      # 1. INIT CONTAINER: Downloads the model and exits successfully
+      initContainers:
+      - name: model-downloader
+        image: registry.access.redhat.com/ubi9/python-39
+        command: ["/bin/bash", "-c"]
+        args:
+          - |
+            echo "Starting init container to download model..."
+            pip install huggingface-hub
+            
+            MOUNT_PATH="/mnt/model-cache"
+            MODEL_DIR="${MOUNT_PATH}/google/gemma-3-1b-it"
+            
+            mkdir -p $MODEL_DIR
+            
+            echo "Starting authenticated download of google/gemma-3-1b-it..."
+            huggingface-cli download google/gemma-3-1b-it \
+              --local-dir $MODEL_DIR \
+              --local-dir-use-symlinks False
+            
+            echo "Download complete. Init container exiting."
+
+        env:
+        - name: HF_TOKEN
+          value: "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" # <-- REPLACE THIS
+              
+        volumeMounts:
+        - name: model-cache-volume
+          mountPath: /mnt/model-cache
+
+      # 2. MAIN CONTAINER: Keeps the Pod running for inspection
+      containers:
+      - name: inspector-container
+        image: registry.access.redhat.com/ubi9/python-39 # Use the same UBI image for consistency
+        command: ["/bin/bash", "-c"]
+        # This command runs indefinitely, keeping the Pod "Running"
+        args: ["echo 'Pod ready for inspection. Run oc rsh to connect.'; sleep infinity"]
+
+        # Mount the PVC so you can inspect it
+        volumeMounts:
+        - name: model-cache-volume
+          mountPath: /mnt/model-cache
+      
+      volumes:
+      - name: model-cache-volume
+        persistentVolumeClaim:
+          claimName: model-cache-pvc

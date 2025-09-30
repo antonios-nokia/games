@@ -1,0 +1,18 @@
+apiVersion: serving.kserve.io/v1beta1
+kind: InferenceService
+metadata:
+  name: qwen32multi
+  namespace: antonio
+  annotations:
+    serving.kserve.io/deploymentMode: RawDeployment
+    serving.kserve.io/autoscalerClass: none
+spec:
+  predictor:
+    model:
+      modelFormat:
+        name: vLLM
+      runtime: vllm-multinode-runtime
+      storageUri: pvc://model-cache-pvc/qwen/qwen3-32b
+    workerSpec: 
+      tensorParallelSize: 1
+      pipelineParallelSize: 2

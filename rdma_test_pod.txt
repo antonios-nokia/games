@@ -1,0 +1,77 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: sriovlegacy-4-workload
+  namespace: default 
+  annotations:
+    k8s.v1.cni.cncf.io/networks: sriovibnetwork
+spec:
+  nodeSelector: 
+    kubernetes.io/hostname: openshift-ai-04
+  containers:
+  - image: mellanox/centos_7_4_mofed_4_2_1_2_0_0_60
+    name: sriovlegacy-4-workload
+    command:
+      - sh
+      - -c
+      - sleep inf
+    securityContext:
+      privileged: true
+      capabilities:
+        add: [ "IPC_LOCK" ]
+    resources:
+      limits:
+        nvidia.com/gpu: 1
+        openshift.io/sriovlegacy: 1
+      requests:
+        nvidia.com/gpu: 1
+        openshift.io/sriovlegacy: 1
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: sriovlegacy-5-workload
+  namespace: default 
+  annotations:
+    k8s.v1.cni.cncf.io/networks: sriovibnetwork
+spec:
+  nodeSelector: 
+    kubernetes.io/hostname: openshift-ai-05
+  containers:
+  - image: mellanox/centos_7_4_mofed_4_2_1_2_0_0_60
+    name: sriovlegacy-5-workload
+    command:
+      - sh
+      - -c
+      - sleep inf
+    securityContext:
+      privileged: true
+      capabilities:
+        add: [ "IPC_LOCK" ]
+    resources:
+      limits:
+        nvidia.com/gpu: 1
+        openshift.io/sriovlegacy: 1
+      requests:
+        nvidia.com/gpu: 1
+        openshift.io/sriovlegacy: 1
+
+apiVersion: v1
+kind: Pod
+metadata:
+  name: sriov-ib-test-pod
+  annotations:
+    k8s.v1.cni.cncf.io/networks: sriovibnetwork
+spec:
+  containers:
+  - name: test-container
+    image: mellanox/rping-test
+    command: ["/bin/bash", "-c", "sleepinfinity"]
+    securityContext:
+      capabilities:
+        add: ["IPC_LOCK"]
+    resources:
+      requests:
+        openshift.io/sriovlegacy: '1'
+      limits:
+        openshift.io/sriovlegacy: '1'

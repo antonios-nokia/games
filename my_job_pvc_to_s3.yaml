@@ -1,0 +1,68 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: upload-model-to-s3-v4 # Changed name to reflect the final fix
+  labels:
+    job-name: s3-uploader
+spec:
+  backoffLimit: 2
+  template:
+    spec:
+      serviceAccountName: default
+      restartPolicy: OnFailure
+      
+      containers:
+      - name: s3-uploader
+        image: registry.access.redhat.com/ubi9/python-39 
+        command: ["/bin/bash", "-c"]
+        args:
+          - |
+            # --- Setup: Install AWS CLI using pip3 ---
+            echo "Installing AWS CLI..."
+            pip3 install awscli
+            
+            # --- Check the install location and ensure it's in PATH ---
+            # This line will check where 'aws' was installed and ensure the shell can find it.
+            # While 'pip' should automatically handle PATH, this re-sourcing or explicit call 
+            # helps ensure the shell registers the new executable location.
+            # We will rely on running 'aws' directly without a hardcoded path.
+            
+            echo "AWS CLI installed. Starting upload..."
+            
+            # --- Configuration and Upload ---
+            PVC_MOUNT_PATH="/mnt/model-cache"
+            LOCAL_MODEL_PATH="${PVC_MOUNT_PATH}/google/gemma-3-1b-it"
+            
+            # S3 Endpoint URL (Retained from your previous attempt)
+            S3_ENDPOINT_URL="http://minio-api-antonio.apps.barolo.skynet.ai"
+            # S3 Bucket and Remote Path (Retained from your previous attempt)
+            REMOTE_S3_PATH="s3://backup/gemma/"
+            
+            echo "Starting sync from ${LOCAL_MODEL_PATH} to ${REMOTE_S3_PATH}"
+            
+            # 🔑 FIX: Removed the absolute path, relying on the shell's $PATH 
+            # (which is correctly configured for pip installs in the ubi/python image).
+            aws s3 sync ${LOCAL_MODEL_PATH} ${REMOTE_S3_PATH} \
+              --endpoint-url ${S3_ENDPOINT_URL} \
+              --region ${AWS_REGION} \
+              --delete
+
+            echo "Upload complete."
+
+        env:
+          # Standard AWS Environment Variables
+        - name: AWS_ACCESS_KEY_ID
+          value: "minio"
+        - name: AWS_SECRET_ACCESS_KEY
+          value: "minio123"
+        - name: AWS_REGION
+          value: "east"
+              
+        volumeMounts:
+        - name: model-cache-volume
+          mountPath: /mnt/model-cache
+      
+      volumes:
+      - name: model-cache-volume
+        persistentVolumeClaim:
+          claimName: model-cache-pvc
