@@ -1,0 +1,86 @@
+apiVersion: serving.kserve.io/v1alpha1
+kind: ServingRuntime
+metadata:
+  name: gemma31bnew
+  namespace: antonio  # Change this if needed
+  labels:
+    opendatahub.io/dashboard: "true"
+  annotations:
+    opendatahub.io/accelerator-name: migrated-gpu
+    opendatahub.io/apiProtocol: REST
+    opendatahub.io/recommended-accelerators: '["nvidia.com/gpu"]'
+    opendatahub.io/runtime-version: v0.10.0.2
+    opendatahub.io/serving-runtime-scope: global
+    opendatahub.io/template-display-name: vLLM NVIDIA GPU ServingRuntime for KServe manually
+    opendatahub.io/template-name: vllm-cuda-runtime
+    openshift.io/display-name: gemma31bnew
+spec:
+  annotations:
+    prometheus.io/path: /metrics
+    prometheus.io/port: "8080"
+  containers:
+  - name: kserve-container
+    image: quay.io/modh/vllm@sha256:4b9dd97838cf5f4b2c9dde0357abef2a7953965f028a07446e78f2a412df90fb
+    command:
+    - python
+    - -m
+    - vllm.entrypoints.openai.api_server
+    args:
+    - --port=8080
+    - --model=/mnt/models
+    - --served-model-name={{.Name}}
+    env:
+    - name: HF_HOME
+      value: /tmp/hf_home
+    ports:
+    - containerPort: 8080
+      protocol: TCP
+    volumeMounts:
+    - name: shm
+      mountPath: /dev/shm
+  volumes:
+  - name: shm
+    emptyDir:
+      medium: Memory
+      sizeLimit: 2Gi
+  multiModel: false
+  supportedModelFormats:
+  - name: vLLM
+    autoSelect: true
+---
+apiVersion: serving.kserve.io/v1beta1
+kind: InferenceService
+metadata:
+  name: gemma31bnew
+  namespace: antonio  # Ensure this namespace exists
+  labels:
+    opendatahub.io/dashboard: "true"
+    networking.kserve.io/visibility: exposed #it will will create a route
+  annotations:
+    serving.kserve.io/deploymentMode: RawDeployment
+    openshift.io/display-name: gemma31bnew
+    opendatahub.io/hardware-profile-namespace: redhat-ods-applications
+    opendatahub.io/legacy-hardware-profile-name: migrated-gpu-mglzi-serving
+spec:
+  predictor:
+    automountServiceAccountToken: false
+    minReplicas: 1
+    maxReplicas: 1
+    model:
+      args:
+        - --max-model-len=8192
+      modelFormat:
+        name: vLLM
+      runtime: gemma31bnew
+      storage:
+        key: models
+        path: gemma3
+      resources:
+        limits:
+          cpu: "2"
+          memory: 8Gi
+          nvidia.com/gpu: "1"
+        requests:
+          cpu: "1"
+          memory: 4Gi
+          nvidia.com/gpu: "1"
