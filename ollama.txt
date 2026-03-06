@@ -1,0 +1,101 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: ollama-data # This name must match the claimName in your Deployment
+spec:
+  accessModes:
+    - ReadWriteOnce # This means it can be mounted by one pod at a time.
+  resources:
+    requests:
+      storage: 50Gi # Adjust this size based on the LLMs you plan to store.
+                    # Llama 3 models can be tens of GBs.
+  # storageClassName: # Optional: If you have a specific StorageClass, uncomment and specify.
+                      # Otherwise, it will use the default.
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ollama
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ollama
+  template:
+    metadata:
+      labels:
+        app: ollama
+    spec:
+      containers:
+      - name: ollama
+        image: ollama/ollama:latest
+        ports:
+        - containerPort: 11434
+        env:
+         - name: HTTP_PROXY
+           value: "http://10.61.160.11:8080"
+         - name: HTTPS_PROXY
+           value: "http://10.61.160.11:8080"
+         - name: http_proxy
+           value: "http://10.61.160.11:8080"
+         - name: https_proxy
+           value: "http://10.61.160.11:8080"
+         - name: NO_PROXY
+           value: "localhost,127.0.0.1,0.0.0.0,*.svc,*.cluster.local"   
+         - name: no_proxy
+           value: "localhost,127.0.0.1,0.0.0.0,*.svc,*.cluster.local"
+        volumeMounts:
+        - name: ollama-data
+          mountPath: /.ollama 
+        tty: true
+      volumes:
+      - name: ollama-data
+        persistentVolumeClaim:
+          claimName: ollama-data
+      restartPolicy: Always
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ollama
+spec:
+  ports:
+  - protocol: TCP
+    port: 11434
+    targetPort: 11434
+  selector:
+    app: ollama
+---
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: ollama-route # Name for your OpenShift Route
+  labels:
+    app: ollama
+spec:
+  to:
+    kind: Service
+    name: ollama-service # Points to the Service defined above
+    weight: 100
+  port:
+    targetPort: 11434 # Route targets the Service's port
+  wildcardPolicy: None # Standard setting
+
+
+========================
+apiVersion: v1
+kind: Service
+metadata:
+  name: ollama-service # Name of your Service
+  labels:
+    app: ollama
+spec:
+  type: NodePort # <--- Changed to NodePort
+  ports:
+  - protocol: TCP
+    port: 11434 
+    targetPort: 11434 
+    nodePort: 31434 
+  selector:
+    app: ollama
